@@ -13,9 +13,8 @@
 #define LINE_WIDTH 5
 #define SCREEN_NUMBER 0
 
-static GC create_gc(Display* dpy, Window window, int line_width)
+GC create_gc(Display* dpy, Window window, int line_width)
 {
-    // GC graphicsContext = DefaultGC(display, screenNumber);
     GC gc;
     XGCValues xgcv;
     unsigned long valuemask;
@@ -35,9 +34,15 @@ static GC create_gc(Display* dpy, Window window, int line_width)
     return gc;
 }
 
-void draw_things(Display* display, Window window)
+void draw_diamond(Display* display, Window window, GC gc, XPoint points[])
 {
-    GC gc = create_gc(display, window, LINE_WIDTH);
+    XDrawPoints(display, window, gc, points, 4, CoordModeOrigin);
+    XDrawLines(display, window, gc, points, 4, CoordModeOrigin);
+    XDrawLine(display, window, gc, points[0].x, points[0].y, points[3].x, points[3].y);
+}
+
+void draw_things(Display* display, Window window, GC gc, XEvent* ev)
+{
     char str[] = "Hello X.org!";
     int strLen = strlen(str);
     XDrawString(display, window, gc, 100, 100, str, strLen);
@@ -51,11 +56,28 @@ void draw_things(Display* display, Window window)
         {3 * SCALE, 2 * SCALE},
         {2 * SCALE, 3 * SCALE},
     };
-    XDrawPoints(display, window, gc, points, 4, CoordModeOrigin);
-    XDrawLines(display, window, gc, points, 4, CoordModeOrigin);
-    XDrawLine(display, window, gc, points[0].x, points[0].y, points[3].x, points[3].y);
+    draw_diamond(display, window, gc, points);
 
     XDrawRectangle(display, window, gc, 150, 150, 30, 30);
+
+    char buff[100];
+    snprintf(buff, 100, "XEvent->XAnyEvent->Type: %i", ev->xany.type);
+    XDrawString(display, window, gc, 200, 200, buff, strlen(buff));
+}
+
+void handle_window_close(Atom wmDeleteMessage, XEvent event, bool* running)
+{
+    if (event.xclient.data.l[0] == wmDeleteMessage) {
+        *running = false;
+    }
+}
+
+int error_handler(Display* display, XErrorEvent* error)
+{
+    char buff[256]; // probably good enough for most errors
+    XGetErrorText(display, error->error_code, buff, sizeof(buff));
+    fprintf(stderr, "X Error: %s\n", buff);
+    return 0;
 }
 
 int main()
@@ -70,7 +92,9 @@ int main()
                                         WhitePixel(display, SCREEN_NUMBER));
 
     XMapWindow(display, window); // map window to screen (shows the created window)
-    XSelectInput(display, window, ExposureMask);
+    XSelectInput(display, window, ExposureMask | KeyPressMask | ButtonPressMask);
+
+    GC gc = create_gc(display, window, LINE_WIDTH);
 
     Atom wmDeleteMessage = XInternAtom(display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(display, window, &wmDeleteMessage, 1);
@@ -82,18 +106,22 @@ int main()
 
         switch (event.type) {
         case Expose:
-            draw_things(display, window);
+            draw_things(display, window, gc, &event);
+            break;
+        case ButtonPress:
+            break;
+        case KeyPress:
             break;
         case ClientMessage:
-            if (event.xclient.data.l[0] == wmDeleteMessage) {
-                running = false;
-                break;
-            }
+            handle_window_close(wmDeleteMessage, event, &running);
+            break;
         default:
             break;
         }
     }
 
+    XSetErrorHandler(error_handler);
+    XFreeGC(display, gc);
     XDestroyWindow(display, window);
     XCloseDisplay(display);
 
