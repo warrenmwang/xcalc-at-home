@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -lX11
+CFLAGS = -Wall -lX11 -std=c11
 
 SRC = main.c
 TARGET = main.out

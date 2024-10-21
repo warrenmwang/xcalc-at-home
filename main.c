@@ -14,13 +14,26 @@
 #define SCREEN_NUMBER 0
 #define NUM_BUTTONS 18
 #define SCALE 2.25
+#define DISPLAY_BUTTON_INDEX 17
 
 typedef struct {
+    int id;
     int x, y;
     unsigned int width, height;
     unsigned long border, background, foreground;
     char* label;
 } Button;
+
+Button* get_button_at_location(Button buttons[], int x, int y)
+{
+    for (int i = 0; i < NUM_BUTTONS; ++i) {
+        if (x >= buttons[i].x && x <= buttons[i].x + buttons[i].width && y >= buttons[i].y &&
+            y <= buttons[i].y + buttons[i].height) {
+            return &buttons[i];
+        }
+    }
+    return NULL;
+}
 
 GC create_gc(Display* display, Window window, int line_width, Font font)
 {
@@ -50,6 +63,7 @@ void create_button(Button buttons[], int btn_index, int x, int y, int w, int h, 
         return;
     }
     Button* btn = &buttons[btn_index];
+    btn->id = btn_index;
     btn->x = x * SCALE;
     btn->y = y * SCALE;
     btn->width = w * SCALE;
@@ -137,6 +151,56 @@ int error_handler(Display* display, XErrorEvent* error)
     return 0;
 }
 
+// TODO:
+void handle_button_click(Button* button)
+{
+    if (button == NULL) {
+        return;
+    }
+    fprintf(stdout, "user clicked on the button with label: %s\n", button->label);
+
+    switch (button->id) {
+    case 0: // 0
+        break;
+    case 1: // . (decimal for floating point)
+        break;
+    case 2: // evaluate
+        break;
+    case 3: // 1
+        break;
+    case 4: // 2
+        break;
+    case 5: // 3
+        break;
+    case 6: // add
+        break;
+    case 7: // 4
+        break;
+    case 8: // 5
+        break;
+    case 9: // 6
+        break;
+    case 10: // sub
+        break;
+    case 11: // 7
+        break;
+    case 12: // 8
+        break;
+    case 13: // 9
+        break;
+    case 14: // mul
+        break;
+    case 15: // clear
+        break;
+    case 16: // div
+        break;
+    case DISPLAY_BUTTON_INDEX:
+        return;
+    default:
+        break;
+    }
+}
+
 int main()
 {
     Display* display;
@@ -147,6 +211,7 @@ int main()
     Window window = XCreateSimpleWindow(display, DefaultRootWindow(display), POSX, POXY, WIDTH,
                                         HEIGHT, BORDER_WIDTH, BlackPixel(display, SCREEN_NUMBER),
                                         WhitePixel(display, SCREEN_NUMBER));
+    XStoreName(display, window, "Lil' Wang's XCalc");
 
     XMapWindow(display, window); // map window to screen (shows the created window)
     XSelectInput(display, window, ExposureMask | KeyPressMask | ButtonPressMask);
@@ -168,6 +233,7 @@ int main()
 
     Button buttons[NUM_BUTTONS];
 
+    Button* currButton;
     XEvent event;
     bool running = true;
     while (running) {
@@ -178,6 +244,7 @@ int main()
             draw_app(display, window, gc, &event, buttons, font_struct);
             break;
         case ButtonPress:
+            handle_button_click(get_button_at_location(buttons, event.xbutton.x, event.xbutton.y));
             break;
         case KeyPress:
             break;

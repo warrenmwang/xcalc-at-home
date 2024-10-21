@@ -1,9 +1,16 @@
-# Simple Desktop Calculator in C + X11
+# Dumber `xcalc`
 
-I felt like I haven't touched C in a long time, so why not try something "simple"
-and also learn something new at the same time like how to work with X11 windowing
-system on a common Linux OS like Ubuntu, my daily driver. 
+This is a simple calculator app drawn using the X client lib for X Server protocol.
+
+## Motivation
+I felt like I haven't touched C in a long time, and there's no better way to make
+reviewing something old by also learning something new at the same time...
+I don't know any GUI frameworks for native apps on any of the big three OS's frankly, but I know that 
+my system uses X11 for its windowing system and you could probably just use a programming lib
+for it directly...How hard could it be?
+
 > What did I get myself into? X11 is dying in favor of things like Wayland and Hyprland.
+> Who cares, build the thing! Learn!
 
 ## Getting Started
 
