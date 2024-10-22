@@ -7,7 +7,7 @@
 
 #define POSX 50
 #define POXY 50
-#define WIDTH 600
+#define WIDTH 500
 #define HEIGHT 800
 #define BORDER_WIDTH 1
 #define LINE_WIDTH 5
@@ -15,6 +15,8 @@
 #define NUM_BUTTONS 18
 #define SCALE 2.25
 #define DISPLAY_BUTTON_INDEX 17
+
+char DISPLAY_BUTTON_BUF[1000];
 
 typedef struct {
     int id;
@@ -71,19 +73,7 @@ void create_button(Button buttons[], int btn_index, int x, int y, int w, int h, 
     btn->label = label;
 }
 
-void draw_button(Display* display, Window window, GC gc, Button* button, XFontStruct* font_struct)
-{
-    XDrawRectangle(display, window, gc, button->x, button->y, button->width, button->height);
-    int text_width = XTextWidth(font_struct, button->label, strlen(button->label));
-    int text_height = 5;
-
-    XDrawString(display, window, gc, button->x + (button->width - text_width) / 2,
-                button->y + (button->height - text_height) / 2, button->label,
-                strlen(button->label));
-}
-
-void draw_app(Display* display, Window window, GC gc, XEvent* ev, Button buttons[],
-              XFontStruct* font_struct)
+void initialize_buttons(Button buttons[])
 {
     // Create our buttons
     create_button(buttons, 0, 0, 300, 100, 50, "0");
@@ -108,8 +98,24 @@ void draw_app(Display* display, Window window, GC gc, XEvent* ev, Button buttons
     create_button(buttons, 15, 0, 100, 150, 50, "Clear");
     create_button(buttons, 16, 150, 100, 50, 50, "/");
 
-    create_button(buttons, 17, 0, 0, 200, 100, "Hello, this is your X calculator speaking.");
+    DISPLAY_BUTTON_BUF[0] = '\0';
+    create_button(buttons, DISPLAY_BUTTON_INDEX, 0, 0, 200, 100, DISPLAY_BUTTON_BUF);
+}
 
+void draw_button(Display* display, Window window, GC gc, Button* button, XFontStruct* font_struct)
+{
+    XDrawRectangle(display, window, gc, button->x, button->y, button->width, button->height);
+    int text_width = XTextWidth(font_struct, button->label, strlen(button->label));
+    int text_height = 5;
+
+    XDrawString(display, window, gc, button->x + (button->width - text_width) / 2,
+                button->y + (button->height - text_height) / 2, button->label,
+                strlen(button->label));
+}
+
+void draw_app(Display* display, Window window, GC gc, XEvent* ev, Button buttons[],
+              XFontStruct* font_struct)
+{
     // Draw our buttons
     draw_button(display, window, gc, &buttons[0], font_struct);
     draw_button(display, window, gc, &buttons[1], font_struct);
@@ -136,6 +142,32 @@ void draw_app(Display* display, Window window, GC gc, XEvent* ev, Button buttons
     draw_button(display, window, gc, &buttons[17], font_struct);
 }
 
+void update_buttons_from_state(Button buttons[], int* state, char op1[], unsigned int* p_op1,
+                               char op2[], unsigned int* p_op2, char* operator_buf, long* res_buf)
+{
+    // TODO: update display button label based on state and values
+
+    Button* display_button;
+    switch (*state) {
+    case 0: // building op 1
+        display_button = &buttons[DISPLAY_BUTTON_INDEX];
+        // TODO:
+        // need to copy the chars from op1 buf in the range [0, p_op1) into the DISPLAY_BUTTON_BUF
+        // and I assume append the \0 char to denote end of string.
+        // or do i just want to swap the ptr in the display button to point to the op1_buf and just change
+        // how im adding values to op1 buf to ensure that buf is always null terminated?
+        //
+        // strcpy(char *, const char *)
+        break;
+    case 1: // building op 2
+        break;
+    case 2: // just evaluated
+        break;
+    default:
+        errx(1, "Got an invalid state in update_buttons_from_state");
+    }
+}
+
 void handle_window_close(Atom wmDeleteMessage, XEvent event, bool* running)
 {
     if (event.xclient.data.l[0] == wmDeleteMessage) {
@@ -151,8 +183,102 @@ int error_handler(Display* display, XErrorEvent* error)
     return 0;
 }
 
+// reset bufs, pointers, and state
+void handle_clear(int* state, unsigned int* p_op1, unsigned int* p_op2, bool* seen_decimal,
+                  char* operator_buf, long* res_buf)
+{
+    *state = 0;
+    *p_op1 = 0;
+    *p_op2 = 0;
+    *seen_decimal = false;
+    *res_buf = 0;
+}
+
+void handle_evaluate()
+{
+    // TODO:
+    // parse op1_buf and op2_buf
+    // use the operator in operator_buf to compute result and store in res_buf
+    // copy value of res_buf into op1_buf
+    // clear op2_buf and
+    // set state to just evaluated
+}
+
+void handle_input_num(char num, int* state, char op1[], unsigned int* p_op1, char op2[],
+                      unsigned int* p_op2)
+{
+    switch (*state) {
+    case 0: // building op 1
+        op1[(*p_op1)++] = num;
+        break;
+    case 1: // building op 2
+        op2[(*p_op2)++] = num;
+        break;
+    case 2:    // just evaluated
+        break; // TODO:
+    default:
+        errx(1, "Got an invalid state in handle_input_num.");
+    }
+}
+
+void handle_input_decimal(int* state, bool* seen_decimal, char op1[], unsigned int* p_op1,
+                          char op2[], unsigned int* p_op2)
+{
+    if (*seen_decimal) {
+        return;
+    }
+
+    switch (*state) {
+    case 0: // building op 1
+        op1[(*p_op1)++] = '.';
+        break;
+    case 1: // building op 2
+        op2[(*p_op2)++] = '.';
+        break;
+    case 2:    // just evaluated
+        break; // TODO:
+    default:
+        errx(1, "Got an invalid state in handle_input_decimal.");
+    }
+
+    *seen_decimal = true;
+}
+
+void handle_input_operator(char operator, int * state, char op1[], unsigned int* p_op1, char op2[],
+                           unsigned int* p_op2, char* operator_buf)
+{
+    switch (*state) {
+    case 0: // were building op 1
+        // only save operator if had any number(s) inputted for operand 1
+        if (*p_op1 > 0) {
+            *operator_buf = operator;
+            (*state)++;
+        }
+        break;
+    case 1: // were building op 2
+        if (*p_op2 == 0) {
+            *operator_buf = operator;
+        } else {
+            // TODO: call handle evaluate (which should evaluate and save result in op1_buf and
+            // res_buf, AND update state for us)
+
+            *operator_buf = operator;
+        }
+        break;
+    case 2: // just evaluated
+        *operator_buf = operator;
+        (*state)--; // previous result should be in res_buf AND op1_buf
+    default:
+        errx(1, "Got an invalid state in handle_input_operator.");
+    }
+}
+
 // TODO:
-void handle_button_click(Button* button)
+// think about how state should work and how this calculator will work and handle edge cases
+// how to get it to display properly and all that as the label of the display button.
+void handle_button_click(Button* button, int* state, bool* seen_decimal, char op1[],
+                         unsigned int* p_op1, char op2[], unsigned int* p_op2, char* operator_buf,
+                         long* res_buf)
 {
     if (button == NULL) {
         return;
@@ -160,39 +286,55 @@ void handle_button_click(Button* button)
     fprintf(stdout, "user clicked on the button with label: %s\n", button->label);
 
     switch (button->id) {
-    case 0: // 0
+    case 0: // 0 handle_input_num('0', state, op1, p_op1, op2, p_op2);
         break;
     case 1: // . (decimal for floating point)
+        handle_input_decimal(state, seen_decimal, op1, p_op1, op2, p_op2);
         break;
-    case 2: // evaluate
+    case 2: // evaluate (=)
+        // TODO:
         break;
     case 3: // 1
+        handle_input_num('1', state, op1, p_op1, op2, p_op2);
         break;
     case 4: // 2
+        handle_input_num('2', state, op1, p_op1, op2, p_op2);
         break;
     case 5: // 3
+        handle_input_num('3', state, op1, p_op1, op2, p_op2);
         break;
-    case 6: // add
+    case 6: // add (+)
+        handle_input_operator('+', state, op1, p_op1, op2, p_op2, operator_buf);
         break;
     case 7: // 4
+        handle_input_num('4', state, op1, p_op1, op2, p_op2);
         break;
     case 8: // 5
+        handle_input_num('5', state, op1, p_op1, op2, p_op2);
         break;
     case 9: // 6
+        handle_input_num('6', state, op1, p_op1, op2, p_op2);
         break;
-    case 10: // sub
+    case 10: // sub (-)
+        handle_input_operator('-', state, op1, p_op1, op2, p_op2, operator_buf);
         break;
     case 11: // 7
+        handle_input_num('7', state, op1, p_op1, op2, p_op2);
         break;
     case 12: // 8
+        handle_input_num('8', state, op1, p_op1, op2, p_op2);
         break;
     case 13: // 9
+        handle_input_num('9', state, op1, p_op1, op2, p_op2);
         break;
-    case 14: // mul
+    case 14: // mul (x)
+        handle_input_operator('x', state, op1, p_op1, op2, p_op2, operator_buf);
         break;
-    case 15: // clear
+    case 15: // clear (Clear)
+        handle_clear(state, p_op1, p_op2, seen_decimal, operator_buf, res_buf);
         break;
-    case 16: // div
+    case 16: // div (/)
+        handle_input_operator('/', state, op1, p_op1, op2, p_op2, operator_buf);
         break;
     case DISPLAY_BUTTON_INDEX:
         return;
@@ -232,8 +374,16 @@ int main()
     XSetWMProtocols(display, window, &wmDeleteMessage, 1);
 
     Button buttons[NUM_BUTTONS];
+    bool seen_decimal = false;
+    int state = 0; // 0 = building op1, 1 = building op2, 2 = just evaluated
+    char op1[1000];
+    unsigned int p_op1 = 0;
+    char op2[1000];
+    unsigned int p_op2 = 0;
+    char operator_buf = '\0';
+    long res_buf = 0;
+    initialize_buttons(buttons);
 
-    Button* currButton;
     XEvent event;
     bool running = true;
     while (running) {
@@ -244,7 +394,12 @@ int main()
             draw_app(display, window, gc, &event, buttons, font_struct);
             break;
         case ButtonPress:
-            handle_button_click(get_button_at_location(buttons, event.xbutton.x, event.xbutton.y));
+            handle_button_click(get_button_at_location(buttons, event.xbutton.x, event.xbutton.y),
+                                &state, &seen_decimal, op1, &p_op1, op2, &p_op2, &operator_buf,
+                                &res_buf);
+            update_buttons_from_state(buttons, &state, op1, &p_op1, op2, &p_op2, &operator_buf,
+                                      &res_buf);
+            draw_app(display, window, gc, &event, buttons, font_struct);
             break;
         case KeyPress:
             break;
