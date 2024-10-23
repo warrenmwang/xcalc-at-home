@@ -12,7 +12,7 @@
 #define BORDER_WIDTH 1
 #define LINE_WIDTH 5
 #define SCREEN_NUMBER 0
-#define NUM_BUTTONS 18
+#define NUM_BUTTONS 19
 #define SCALE 2.25
 #define DISPLAY_BUTTON_INDEX 17
 
@@ -93,7 +93,8 @@ void initialize_buttons(Button buttons[], char display_button_buf[])
     create_button(buttons, 13, 100, 150, 50, 50, "9");
     create_button(buttons, 14, 150, 150, 50, 50, "x");
 
-    create_button(buttons, 15, 0, 100, 150, 50, "Clear");
+    create_button(buttons, 15, 0, 100, 100, 50, "Clear");
+    create_button(buttons, 18, 100, 100, 50, 50, "Del");
     create_button(buttons, 16, 150, 100, 50, 50, "/");
 
     display_button_buf[0] = '\0';
@@ -137,7 +138,8 @@ void draw_app(Display* display, Window window, GC gc, XEvent* ev, Button buttons
     draw_button(display, window, gc, &buttons[15], font_struct);
     draw_button(display, window, gc, &buttons[16], font_struct);
 
-    draw_button(display, window, gc, &buttons[17], font_struct);
+    draw_button(display, window, gc, &buttons[DISPLAY_BUTTON_INDEX], font_struct);
+    draw_button(display, window, gc, &buttons[18], font_struct);
 }
 
 // Updates the labels of the buttons from our calculator's state.
@@ -194,7 +196,7 @@ int error_handler(Display* display, XErrorEvent* error)
 // don't need to reset op1 and op2 bufs, just the ptrs, but do need to clear
 // the display buf
 void handle_clear(int* state, unsigned int* p_op1, unsigned int* p_op2, bool* seen_decimal,
-                  char* operator_buf, long long* res_buf, char display_button_buf[],
+                  char* operator_buf, long long* res_buf, char display_buf[],
                   unsigned int* p_display_buf)
 {
     *state = 0;
@@ -202,11 +204,50 @@ void handle_clear(int* state, unsigned int* p_op1, unsigned int* p_op2, bool* se
     *p_op2 = 0;
     *seen_decimal = false;
     *res_buf = 0;
-    display_button_buf[0] = '\0';
+    display_buf[0] = '\0';
     *p_display_buf = 0;
 }
 
-void handle_evaluate(char op1_buf[], char op2_buf[])
+void handle_backspace(int* state, char op1[], char op2[], char display_buf[], unsigned int* p_op1,
+                      unsigned int* p_op2, unsigned int* p_display_buf, bool* seen_decimal)
+{
+    switch (*state) {
+    case 0:
+        if (*p_op1 > 0) {
+            --(*p_op1);
+            if (op1[*p_op1] == '.') {
+                *seen_decimal = false;
+            }
+            op1[*p_op1] = '\0';
+        }
+        break;
+    case 1:
+        if (*p_op2) {
+            --(*p_op2);
+            if (op1[*p_op2] == '.') {
+                *seen_decimal = false;
+            }
+            op2[*p_op2] = '\0';
+        }
+        break;
+    case 2:
+        if (*p_op1 > 0) {
+            --(*p_op1);
+            if (op1[*p_op1] == '.') {
+                *seen_decimal = false;
+            }
+            op1[*p_op1] = '\0';
+        }
+        if (*p_display_buf > 0) {
+            display_buf[--(*p_display_buf)] = '\0';
+        }
+        break;
+    default:
+        errx(1, "Got invalid state in handle_backspace");
+    }
+}
+
+void handle_evaluate(char op1[], char op2[], char* operator, long long * res, int* state)
 {
     // TODO:
     // parse op1_buf and op2_buf
@@ -214,6 +255,8 @@ void handle_evaluate(char op1_buf[], char op2_buf[])
     // copy value of res_buf into op1_buf
     // clear op2_buf and
     // set state to just evaluated
+
+    // easier since i don't have negative operand inputs...
 }
 
 void handle_input_num(char num, int* state, char op1[], unsigned int* p_op1, char op2[],
@@ -309,7 +352,7 @@ void handle_button_click(Button* button, int* state, bool* seen_decimal, char op
         handle_input_decimal(state, seen_decimal, op1, p_op1, op2, p_op2);
         break;
     case 2: // evaluate (=)
-        handle_evaluate(op1, op2);
+        handle_evaluate(op1, op2, operator_buf, res_buf, state);
         break;
     case 3: // 1
         handle_input_num('1', state, op1, p_op1, op2, p_op2);
@@ -356,6 +399,8 @@ void handle_button_click(Button* button, int* state, bool* seen_decimal, char op
         break;
     case DISPLAY_BUTTON_INDEX:
         return;
+    case 18: // Del
+        handle_backspace(state, op1, op2, display_button_buff, p_op1, p_op2, p_display_buf, seen_decimal);
     default:
         break;
     }
