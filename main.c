@@ -16,8 +16,6 @@
 #define SCALE 2.25
 #define DISPLAY_BUTTON_INDEX 17
 
-char DISPLAY_BUTTON_BUF[1000];
-
 typedef struct {
     int id;
     int x, y;
@@ -73,7 +71,7 @@ void create_button(Button buttons[], int btn_index, int x, int y, int w, int h, 
     btn->label = label;
 }
 
-void initialize_buttons(Button buttons[])
+void initialize_buttons(Button buttons[], char display_button_buf[])
 {
     // Create our buttons
     create_button(buttons, 0, 0, 300, 100, 50, "0");
@@ -98,8 +96,8 @@ void initialize_buttons(Button buttons[])
     create_button(buttons, 15, 0, 100, 150, 50, "Clear");
     create_button(buttons, 16, 150, 100, 50, 50, "/");
 
-    DISPLAY_BUTTON_BUF[0] = '\0';
-    create_button(buttons, DISPLAY_BUTTON_INDEX, 0, 0, 200, 100, DISPLAY_BUTTON_BUF);
+    display_button_buf[0] = '\0';
+    create_button(buttons, DISPLAY_BUTTON_INDEX, 0, 0, 200, 100, display_button_buf);
 }
 
 void draw_button(Display* display, Window window, GC gc, Button* button, XFontStruct* font_struct)
@@ -142,26 +140,35 @@ void draw_app(Display* display, Window window, GC gc, XEvent* ev, Button buttons
     draw_button(display, window, gc, &buttons[17], font_struct);
 }
 
+// Updates the labels of the buttons from our calculator's state.
 void update_buttons_from_state(Button buttons[], int* state, char op1[], unsigned int* p_op1,
-                               char op2[], unsigned int* p_op2, char* operator_buf, long* res_buf)
+                               char op2[], unsigned int* p_op2, char* operator_buf,
+                               long long* res_buf, char display_button_buf[],
+                               unsigned int* p_display_buf)
 {
-    // TODO: update display button label based on state and values
-
-    Button* display_button;
+    Button* display_button = &buttons[DISPLAY_BUTTON_INDEX];
     switch (*state) {
     case 0: // building op 1
-        display_button = &buttons[DISPLAY_BUTTON_INDEX];
-        // TODO:
-        // need to copy the chars from op1 buf in the range [0, p_op1) into the DISPLAY_BUTTON_BUF
-        // and I assume append the \0 char to denote end of string.
-        // or do i just want to swap the ptr in the display button to point to the op1_buf and just change
-        // how im adding values to op1 buf to ensure that buf is always null terminated?
-        //
-        // strcpy(char *, const char *)
+        // Just copy the chars from op1 buf in the range [0, p_op1) into the DISPLAY_BUTTON_BUF
+        // could be more optimized by reusing the buffer maybe, but I'm too unfamiliar with
+        // programming at C level for that kind of thing. Premature optimization is the root of all
+        // evil and whatnot. Append a null byte for terminating the string manually.
+        strncpy(display_button_buf, op1, *p_op1);
+        *p_display_buf = *p_op1;
+        display_button_buf[*p_op1] = '\0';
+        display_button->label = display_button_buf;
         break;
     case 1: // building op 2
+        strncpy(display_button_buf, op2, *p_op2);
+        *p_display_buf = *p_op2;
+        display_button_buf[*p_op2] = '\0';
+        display_button->label = display_button_buf;
         break;
     case 2: // just evaluated
+        // Convert the value of res into a char. Could be negative, could be a float, or just an
+        // int.
+        *p_display_buf = sprintf(display_button_buf, "%lld", *res_buf) + 1; // p pts to null byte
+        display_button->label = display_button_buf;
         break;
     default:
         errx(1, "Got an invalid state in update_buttons_from_state");
@@ -184,17 +191,22 @@ int error_handler(Display* display, XErrorEvent* error)
 }
 
 // reset bufs, pointers, and state
+// don't need to reset op1 and op2 bufs, just the ptrs, but do need to clear
+// the display buf
 void handle_clear(int* state, unsigned int* p_op1, unsigned int* p_op2, bool* seen_decimal,
-                  char* operator_buf, long* res_buf)
+                  char* operator_buf, long long* res_buf, char display_button_buf[],
+                  unsigned int* p_display_buf)
 {
     *state = 0;
     *p_op1 = 0;
     *p_op2 = 0;
     *seen_decimal = false;
     *res_buf = 0;
+    display_button_buf[0] = '\0';
+    *p_display_buf = 0;
 }
 
-void handle_evaluate()
+void handle_evaluate(char op1_buf[], char op2_buf[])
 {
     // TODO:
     // parse op1_buf and op2_buf
@@ -278,21 +290,26 @@ void handle_input_operator(char operator, int * state, char op1[], unsigned int*
 // how to get it to display properly and all that as the label of the display button.
 void handle_button_click(Button* button, int* state, bool* seen_decimal, char op1[],
                          unsigned int* p_op1, char op2[], unsigned int* p_op2, char* operator_buf,
-                         long* res_buf)
+                         long long* res_buf, char display_button_buff[],
+                         unsigned int* p_display_buf)
 {
     if (button == NULL) {
+        return;
+    }
+    if (button->id == DISPLAY_BUTTON_INDEX) {
         return;
     }
     fprintf(stdout, "user clicked on the button with label: %s\n", button->label);
 
     switch (button->id) {
-    case 0: // 0 handle_input_num('0', state, op1, p_op1, op2, p_op2);
+    case 0: // 0
+        handle_input_num('0', state, op1, p_op1, op2, p_op2);
         break;
     case 1: // . (decimal for floating point)
         handle_input_decimal(state, seen_decimal, op1, p_op1, op2, p_op2);
         break;
     case 2: // evaluate (=)
-        // TODO:
+        handle_evaluate(op1, op2);
         break;
     case 3: // 1
         handle_input_num('1', state, op1, p_op1, op2, p_op2);
@@ -331,7 +348,8 @@ void handle_button_click(Button* button, int* state, bool* seen_decimal, char op
         handle_input_operator('x', state, op1, p_op1, op2, p_op2, operator_buf);
         break;
     case 15: // clear (Clear)
-        handle_clear(state, p_op1, p_op2, seen_decimal, operator_buf, res_buf);
+        handle_clear(state, p_op1, p_op2, seen_decimal, operator_buf, res_buf, display_button_buff,
+                     p_display_buf);
         break;
     case 16: // div (/)
         handle_input_operator('/', state, op1, p_op1, op2, p_op2, operator_buf);
@@ -353,14 +371,14 @@ int main()
     Window window = XCreateSimpleWindow(display, DefaultRootWindow(display), POSX, POXY, WIDTH,
                                         HEIGHT, BORDER_WIDTH, BlackPixel(display, SCREEN_NUMBER),
                                         WhitePixel(display, SCREEN_NUMBER));
-    XStoreName(display, window, "Lil' Wang's XCalc");
+    XStoreName(display, window, "xcalc at home");
 
     XMapWindow(display, window); // map window to screen (shows the created window)
     XSelectInput(display, window, ExposureMask | KeyPressMask | ButtonPressMask);
 
-    Font font = XLoadFont(display, "fixed");
+    Font font = XLoadFont(display, "10x20");
     if (font == None) {
-        errx(1, "Could not load font: %s\n", "fixed");
+        errx(1, "Could not load font");
     }
 
     GC gc = create_gc(display, window, LINE_WIDTH, font);
@@ -370,8 +388,11 @@ int main()
         errx(1, "couldn't query font struct");
     }
 
-    Atom wmDeleteMessage = XInternAtom(display, "WM_DELETE_WINDOW", False);
-    XSetWMProtocols(display, window, &wmDeleteMessage, 1);
+    Atom wm_delete_message = XInternAtom(display, "WM_DELETE_WINDOW", False);
+    XSetWMProtocols(display, window, &wm_delete_message, 1);
+
+    char display_button_buf[1000];
+    unsigned int p_display_buf = 0;
 
     Button buttons[NUM_BUTTONS];
     bool seen_decimal = false;
@@ -381,8 +402,8 @@ int main()
     char op2[1000];
     unsigned int p_op2 = 0;
     char operator_buf = '\0';
-    long res_buf = 0;
-    initialize_buttons(buttons);
+    long long res_buf = 0;
+    initialize_buttons(buttons, display_button_buf);
 
     XEvent event;
     bool running = true;
@@ -396,15 +417,16 @@ int main()
         case ButtonPress:
             handle_button_click(get_button_at_location(buttons, event.xbutton.x, event.xbutton.y),
                                 &state, &seen_decimal, op1, &p_op1, op2, &p_op2, &operator_buf,
-                                &res_buf);
+                                &res_buf, display_button_buf, &p_display_buf);
             update_buttons_from_state(buttons, &state, op1, &p_op1, op2, &p_op2, &operator_buf,
-                                      &res_buf);
+                                      &res_buf, display_button_buf, &p_display_buf);
+            XClearWindow(display, window);
             draw_app(display, window, gc, &event, buttons, font_struct);
             break;
         case KeyPress:
             break;
         case ClientMessage:
-            handle_window_close(wmDeleteMessage, event, &running);
+            handle_window_close(wm_delete_message, event, &running);
             break;
         default:
             break;
