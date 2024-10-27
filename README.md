@@ -1,4 +1,4 @@
-# Dumber `xcalc`
+# `xcalc` at home
 
 This is a simple calculator app drawn using the X client lib for X Server protocol.
 
