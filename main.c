@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define EPSILON 0.000001
+#define EPSILON 0.000000001
 
 #define POSX 50
 #define POXY 50
@@ -31,6 +31,11 @@ typedef struct {
     unsigned long border, background, foreground;
     char* label;
 } Button;
+
+typedef struct {
+    char buf[1000];
+    unsigned int p;
+} MyBuf;
 
 Button* get_button_at_location(Button buttons[], int x, int y)
 {
@@ -79,7 +84,7 @@ void create_button(Button buttons[], int btn_index, int x, int y, int w, int h, 
     btn->label = label;
 }
 
-void initialize_buttons(Button buttons[], char display_button_buf[])
+void initialize_buttons(Button buttons[], MyBuf display_button_buf)
 {
     // Create our buttons
     create_button(buttons, 0, 0, 300, 100, 50, "0");
@@ -105,8 +110,8 @@ void initialize_buttons(Button buttons[], char display_button_buf[])
     create_button(buttons, 18, 100, 100, 50, 50, "Del");
     create_button(buttons, 16, 150, 100, 50, 50, "/");
 
-    display_button_buf[0] = '\0';
-    create_button(buttons, DISPLAY_BUTTON_INDEX, 0, 0, 200, 100, display_button_buf);
+    display_button_buf.buf[0] = '\0';
+    create_button(buttons, DISPLAY_BUTTON_INDEX, 0, 0, 200, 100, display_button_buf.buf);
 }
 
 void draw_button(Display* display, Window window, GC gc, Button* button, XFontStruct* font_struct)
@@ -151,10 +156,8 @@ void draw_app(Display* display, Window window, GC gc, XEvent* ev, Button buttons
 }
 
 // Updates the labels of the buttons from our calculator's state.
-void update_buttons_from_state(Button buttons[], int* state, char op1[], unsigned int* p_op1,
-                               char op2[], unsigned int* p_op2, char* operator_buf, char res[],
-                               unsigned int* p_res, char display_button_buf[],
-                               unsigned int* p_display_buf)
+void update_buttons_from_state(Button buttons[], int* state, char* operator_buf, MyBuf* op1,
+                               MyBuf* op2, MyBuf* res, MyBuf* display_button_buf)
 {
     Button* display_button = &buttons[DISPLAY_BUTTON_INDEX];
     switch (*state) {
@@ -163,24 +166,24 @@ void update_buttons_from_state(Button buttons[], int* state, char op1[], unsigne
         // could be more optimized by reusing the buffer maybe, but I'm too unfamiliar with
         // programming at C level for that kind of thing. Premature optimization is the root of all
         // evil and whatnot. Append a null byte for terminating the string manually.
-        strncpy(display_button_buf, op1, *p_op1);
-        *p_display_buf = *p_op1;
-        display_button_buf[*p_op1] = '\0';
-        display_button->label = display_button_buf;
+        strncpy(display_button_buf->buf, op1->buf, op1->p);
+        display_button_buf->p = op1->p;
+        display_button_buf->buf[display_button_buf->p] = '\0';
+        display_button->label = display_button_buf->buf;
         break;
     case 1: // building op 2
-        strncpy(display_button_buf, op2, *p_op2);
-        *p_display_buf = *p_op2;
-        display_button_buf[*p_op2] = '\0';
-        display_button->label = display_button_buf;
+        strncpy(display_button_buf->buf, op2->buf, op2->p);
+        display_button_buf->p = op2->p;
+        display_button_buf->buf[display_button_buf->p] = '\0';
+        display_button->label = display_button_buf->buf;
         break;
     case 2: // just evaluated
         // copy res buf contents into display buf contents
         // assuming that res is null terminated AND p_res is on index of the null char.
-        for (unsigned int i = 0; i < *p_res + 1; i++) {
-            display_button_buf[i] = res[i];
+        for (unsigned int i = 0; i < res->p + 1; i++) {
+            display_button_buf->buf[i] = res->buf[i];
         }
-        display_button->label = display_button_buf;
+        display_button->label = display_button_buf->buf;
         break;
     default:
         errx(1, "Got an invalid state in update_buttons_from_state");
@@ -205,51 +208,55 @@ int error_handler(Display* display, XErrorEvent* error)
 // reset bufs, pointers, and state
 // don't need to reset op1 and op2 bufs, just the ptrs, but do need to clear
 // the display buf
-void handle_clear(int* state, unsigned int* p_op1, unsigned int* p_op2, bool* seen_decimal,
-                  char* operator_buf, char res[], unsigned int* p_res, char display_buf[],
-                  unsigned int* p_display_buf)
+void handle_clear(MyBuf* op1, MyBuf* op2, MyBuf* res, MyBuf* display_button_buf, int* state,
+                  bool* seen_decimal, char* operator_buf)
 {
     *state = STATE_BUILDING_OP1;
-    *p_op1 = 0;
-    *p_op2 = 0;
     *seen_decimal = false;
-    *p_res = 0;
-    display_buf[0] = '\0';
-    *p_display_buf = 0;
+    *operator_buf = '\0';
+    op1->buf[0] = '\0';
+    op1->p = 0;
+    op2->buf[0] = '\0';
+    op2->p = 0;
+    res->buf[0] = '\0';
+    res->p = 0;
+    display_button_buf->buf[0] = '\0';
+    display_button_buf->p = 0;
 }
 
-void handle_backspace(int* state, char op1[], char op2[], char display_buf[], unsigned int* p_op1,
-                      unsigned int* p_op2, unsigned int* p_display_buf, bool* seen_decimal)
+void handle_backspace(MyBuf* op1, MyBuf* op2, MyBuf* display_button_buf, int* state,
+                      bool* seen_decimal)
 {
     switch (*state) {
     case STATE_BUILDING_OP1:
-        if (*p_op1 > 0) {
-            --(*p_op1);
-            if (op1[*p_op1] == '.') {
+        if (op1->p > 0) {
+            --(op1->p);
+            if (op1->buf[op1->p] == '.') {
                 *seen_decimal = false;
             }
-            op1[*p_op1] = '\0';
+            op1->buf[op1->p] = '\0';
         }
         break;
     case STATE_BUILDING_OP2:
-        if (*p_op2) {
-            --(*p_op2);
-            if (op1[*p_op2] == '.') {
+        if (op2->p > 0) {
+            --(op2->p);
+            if (op2->buf[op2->p] == '.') {
                 *seen_decimal = false;
             }
-            op2[*p_op2] = '\0';
+            op2->buf[op2->p] = '\0';
         }
         break;
     case STATE_JUST_EVAL:
-        if (*p_op1 > 0) {
-            --(*p_op1);
-            if (op1[*p_op1] == '.') {
+        if (op1->p > 0) {
+            --(op1->p);
+            if (op1->buf[op1->p] == '.') {
                 *seen_decimal = false;
             }
-            op1[*p_op1] = '\0';
+            op1->buf[op1->p] = '\0';
         }
-        if (*p_display_buf > 0) {
-            display_buf[--(*p_display_buf)] = '\0';
+        if (display_button_buf->p > 0) {
+            --(display_button_buf->p);
+            display_button_buf->buf[display_button_buf->p] = '\0';
         }
         break;
     default:
@@ -257,8 +264,7 @@ void handle_backspace(int* state, char op1[], char op2[], char display_buf[], un
     }
 }
 
-void handle_evaluate(char op1[], char op2[], unsigned int* p_op1, unsigned int* p_op2,
-                     char* operator, char res[], unsigned int* p_res, int* state)
+void handle_evaluate(MyBuf* op1, MyBuf* op2, MyBuf* res, int* state, char* operator)
 {
     // parse op1_buf and op2_buf
     //   trailing 0's?
@@ -266,11 +272,11 @@ void handle_evaluate(char op1[], char op2[], unsigned int* p_op1, unsigned int* 
     //   start with the simplest case, regular numbers
 
     // first terminate the strings
-    op1[*p_op1] = '\0';
-    op2[*p_op2] = '\0';
+    op1->buf[op1->p] = '\0';
+    op2->buf[op2->p] = '\0';
     // then parse them
-    float op1_float = (float)atof(op1);
-    float op2_float = (float)atof(op2);
+    float op1_float = (float)atof(op1->buf);
+    float op2_float = (float)atof(op2->buf);
 
     fprintf(stdout, "%f %c %f\n", op1_float, *operator, op2_float);
 
@@ -289,8 +295,8 @@ void handle_evaluate(char op1[], char op2[], unsigned int* p_op1, unsigned int* 
     case '/':
         // no division by zero
         if (fabs(op2_float - 0) < EPSILON) {
-            sprintf(res, "ERR: Division by Zero.");
-            *p_res = strlen(res);
+            sprintf(res->buf, "ERR: Division by Zero.");
+            res->p = strlen(res->buf);
             return;
         }
         res_num = op1_float / op2_float;
@@ -301,30 +307,31 @@ void handle_evaluate(char op1[], char op2[], unsigned int* p_op1, unsigned int* 
 
     // put the char repr of the float res into both the res and op1 bufs
     // and their ptrs
-    sprintf(res, "%.10f", res_num);
-    *p_res = strlen(res);
-    strcpy(op1, res);
-    *p_op1 = *p_res;
+    sprintf(res->buf, "%.10f", res_num);
+    res->p = strlen(res->buf);
+    strcpy(op1->buf, res->buf);
+    op1->p = res->p;
 
     // clear op2_buf, reset p_op2
-    for (unsigned int i = 0; i < *p_op2; i++) {
-        op2[i] = '\0';
+    for (unsigned int i = 0; i < op2->p; i++) {
+        op2->buf[i] = '\0';
     }
-    *p_op2 = 0;
+    op2->p = 0;
 
     // set state to just evaluated
     *state = STATE_JUST_EVAL;
 }
 
-void handle_input_num(char num, int* state, char op1[], unsigned int* p_op1, char op2[],
-                      unsigned int* p_op2)
+void handle_input_num(char num, int* state, MyBuf* op1, MyBuf* op2)
 {
     switch (*state) {
     case STATE_BUILDING_OP1:
-        op1[(*p_op1)++] = num;
+        op1->buf[op1->p] = num;
+        op1->p++;
         break;
     case STATE_BUILDING_OP2:
-        op2[(*p_op2)++] = num;
+        op2->buf[op2->p] = num;
+        op2->p++;
         break;
     case STATE_JUST_EVAL:
         errx(1, "TODO: not implemented.");
@@ -334,8 +341,7 @@ void handle_input_num(char num, int* state, char op1[], unsigned int* p_op1, cha
     }
 }
 
-void handle_input_decimal(int* state, bool* seen_decimal, char op1[], unsigned int* p_op1,
-                          char op2[], unsigned int* p_op2)
+void handle_input_decimal(int* state, bool* seen_decimal, MyBuf* op1, MyBuf* op2)
 {
     if (*seen_decimal) {
         return;
@@ -343,10 +349,12 @@ void handle_input_decimal(int* state, bool* seen_decimal, char op1[], unsigned i
 
     switch (*state) {
     case STATE_BUILDING_OP1:
-        op1[(*p_op1)++] = '.';
+        op1->buf[op1->p] = '.';
+        op1->p++;
         break;
     case STATE_BUILDING_OP2:
-        op2[(*p_op2)++] = '.';
+        op2->buf[op2->p] = '.';
+        op2->p++;
         break;
     case STATE_JUST_EVAL:
         errx(1, "TODO: not implemented");
@@ -358,26 +366,27 @@ void handle_input_decimal(int* state, bool* seen_decimal, char op1[], unsigned i
     *seen_decimal = true;
 }
 
-void handle_input_operator(char operator, int * state, char op1[], unsigned int* p_op1, char op2[],
-                           unsigned int* p_op2, char* operator_buf)
+void handle_input_operator(char operator, int * state, MyBuf* op1, MyBuf* op2, char* operator_buf,
+                           bool* seen_decimal, MyBuf* res)
 {
     switch (*state) {
     case STATE_BUILDING_OP1:
         // only save operator if had any number(s) inputted for operand 1
-        if (*p_op1 > 0) {
+        if (op1->p > 0) {
+            *seen_decimal = false; // reset seen decimal for operand 2
             *operator_buf = operator;
             *state = STATE_BUILDING_OP2;
         }
         break;
     case STATE_BUILDING_OP2:
-        if (*p_op2 == 0) {
+        if (op2->p == 0) {
             *operator_buf = operator;
         } else {
             // TODO: call handle evaluate (which should evaluate and save result in op1 and
             // res, AND update state for us)
             // operand 2 already has some values,
-
             *operator_buf = operator;
+            handle_evaluate(op1, op2, res, state, operator_buf);
         }
         break;
     case STATE_JUST_EVAL:
@@ -392,10 +401,8 @@ void handle_input_operator(char operator, int * state, char op1[], unsigned int*
     }
 }
 
-void handle_button_click(Button* button, int* state, bool* seen_decimal, char op1[],
-                         unsigned int* p_op1, char op2[], unsigned int* p_op2, char* operator_buf,
-                         char res[], unsigned int* p_res, char display_button_buff[],
-                         unsigned int* p_display_buf)
+void handle_button_click(Button* button, int* state, bool* seen_decimal, char* operator_buf,
+                         MyBuf* op1, MyBuf* op2, MyBuf* res, MyBuf* display_button_buf)
 {
     if (button == NULL) {
         return;
@@ -407,62 +414,60 @@ void handle_button_click(Button* button, int* state, bool* seen_decimal, char op
 
     switch (button->id) {
     case 0: // 0
-        handle_input_num('0', state, op1, p_op1, op2, p_op2);
+        handle_input_num('0', state, op1, op2);
         break;
     case 1: // . (decimal for floating point)
-        handle_input_decimal(state, seen_decimal, op1, p_op1, op2, p_op2);
+        handle_input_decimal(state, seen_decimal, op1, op2);
         break;
     case 2: // evaluate (=)
-        handle_evaluate(op1, op2, p_op1, p_op2, operator_buf, res, p_res, state);
+        handle_evaluate(op1, op2, res, state, operator_buf);
         break;
     case 3: // 1
-        handle_input_num('1', state, op1, p_op1, op2, p_op2);
+        handle_input_num('1', state, op1, op2);
         break;
     case 4: // 2
-        handle_input_num('2', state, op1, p_op1, op2, p_op2);
+        handle_input_num('2', state, op1, op2);
         break;
     case 5: // 3
-        handle_input_num('3', state, op1, p_op1, op2, p_op2);
+        handle_input_num('3', state, op1, op2);
         break;
     case 6: // add (+)
-        handle_input_operator('+', state, op1, p_op1, op2, p_op2, operator_buf);
+        handle_input_operator('+', state, op1, op2, operator_buf, seen_decimal, res);
         break;
     case 7: // 4
-        handle_input_num('4', state, op1, p_op1, op2, p_op2);
+        handle_input_num('4', state, op1, op2);
         break;
     case 8: // 5
-        handle_input_num('5', state, op1, p_op1, op2, p_op2);
+        handle_input_num('5', state, op1, op2);
         break;
     case 9: // 6
-        handle_input_num('6', state, op1, p_op1, op2, p_op2);
+        handle_input_num('6', state, op1, op2);
         break;
     case 10: // sub (-)
-        handle_input_operator('-', state, op1, p_op1, op2, p_op2, operator_buf);
+        handle_input_operator('-', state, op1, op2, operator_buf, seen_decimal, res);
         break;
     case 11: // 7
-        handle_input_num('7', state, op1, p_op1, op2, p_op2);
+        handle_input_num('7', state, op1, op2);
         break;
     case 12: // 8
-        handle_input_num('8', state, op1, p_op1, op2, p_op2);
+        handle_input_num('8', state, op1, op2);
         break;
     case 13: // 9
-        handle_input_num('9', state, op1, p_op1, op2, p_op2);
+        handle_input_num('9', state, op1, op2);
         break;
     case 14: // mul (x)
-        handle_input_operator('x', state, op1, p_op1, op2, p_op2, operator_buf);
+        handle_input_operator('x', state, op1, op2, operator_buf, seen_decimal, res);
         break;
     case 15: // clear (Clear)
-        handle_clear(state, p_op1, p_op2, seen_decimal, operator_buf, res, p_res,
-                     display_button_buff, p_display_buf);
+        handle_clear(op1, op2, res, display_button_buf, state, seen_decimal, operator_buf);
         break;
     case 16: // div (/)
-        handle_input_operator('/', state, op1, p_op1, op2, p_op2, operator_buf);
+        handle_input_operator('/', state, op1, op2, operator_buf, seen_decimal, res);
         break;
     case DISPLAY_BUTTON_INDEX:
         return;
     case 18: // Del
-        handle_backspace(state, op1, op2, display_button_buff, p_op1, p_op2, p_display_buf,
-                         seen_decimal);
+        handle_backspace(op1, op2, display_button_buf, state, seen_decimal);
     default:
         break;
     }
@@ -498,20 +503,16 @@ int main()
     Atom wm_delete_message = XInternAtom(display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(display, window, &wm_delete_message, 1);
 
-    char display_button_buf[1000];
-    unsigned int p_display_buf = 0;
-
     Button buttons[NUM_BUTTONS];
+    MyBuf display_button_buf = {.p = 0};
+    initialize_buttons(buttons, display_button_buf);
+
     bool seen_decimal = false;
     int state = STATE_BUILDING_OP1;
-    char op1[1000];
-    unsigned int p_op1 = 0;
-    char op2[1000];
-    unsigned int p_op2 = 0;
+    MyBuf op1 = {.p = 0};
+    MyBuf op2 = {.p = 0};
+    MyBuf res = {.p = 0};
     char operator_buf = '\0';
-    char res[1000];
-    unsigned int p_res = 0;
-    initialize_buttons(buttons, display_button_buf);
 
     XEvent event;
     bool running = true;
@@ -524,10 +525,10 @@ int main()
             break;
         case ButtonPress:
             handle_button_click(get_button_at_location(buttons, event.xbutton.x, event.xbutton.y),
-                                &state, &seen_decimal, op1, &p_op1, op2, &p_op2, &operator_buf, res,
-                                &p_res, display_button_buf, &p_display_buf);
-            update_buttons_from_state(buttons, &state, op1, &p_op1, op2, &p_op2, &operator_buf, res,
-                                      &p_res, display_button_buf, &p_display_buf);
+                                &state, &seen_decimal, &operator_buf, &op1, &op2, &res,
+                                &display_button_buf);
+            update_buttons_from_state(buttons, &state, &operator_buf, &op1, &op2, &res,
+                                      &display_button_buf);
             XClearWindow(display, window);
             draw_app(display, window, gc, &event, buttons, font_struct);
             break;
