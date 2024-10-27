@@ -1,13 +1,13 @@
 #include <X11/X.h>
+#include <X11/XKBlib.h>
 #include <X11/Xlib.h>
+#include <X11/keysym.h>
 #include <err.h>
-#include <math.h>
+#include <locale.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define EPSILON 0.000000001
 
 #define POSX 50
 #define POXY 50
@@ -278,8 +278,6 @@ void handle_evaluate(MyBuf* op1, MyBuf* op2, MyBuf* res, int* state, char* opera
     float op1_float = (float)atof(op1->buf);
     float op2_float = (float)atof(op2->buf);
 
-    fprintf(stdout, "%f %c %f\n", op1_float, *operator, op2_float);
-
     // use the operator in operator_buf to compute result and store in res_buf
     float res_num;
     switch (*operator) {
@@ -294,9 +292,14 @@ void handle_evaluate(MyBuf* op1, MyBuf* op2, MyBuf* res, int* state, char* opera
         break;
     case '/':
         // no division by zero
-        if (fabs(op2_float - 0) < EPSILON) {
-            sprintf(res->buf, "ERR: Division by Zero.");
-            res->p = strlen(res->buf);
+        if (op2_float == 0) {
+            fprintf(stdout, "division by zero\n");
+            op1->buf[0] = '\0';
+            op1->p = 0;
+            op2->buf[0] = '\0';
+            op2->p = 0;
+            res->p = sprintf(res->buf, "ERR: Division by Zero.") + 1; // +1 to get to null byte
+            *state = STATE_JUST_EVAL;
             return;
         }
         res_num = op1_float / op2_float;
@@ -340,7 +343,7 @@ void handle_input_num(char num, int* state, MyBuf* op1, MyBuf* op2)
         op1->p = 1;
         break;
     default:
-        errx(1, "Got an invalid state in handle_input_num.");
+        errx(1, "Got an invalid state in handle_input_num: %d\n", *state);
     }
 }
 
@@ -366,7 +369,7 @@ void handle_input_decimal(int* state, bool* seen_decimal, MyBuf* op1, MyBuf* op2
         op1->p = 1;
         break;
     default:
-        errx(1, "Got an invalid state in handle_input_decimal.");
+        errx(1, "Got an invalid state in handle_input_decimal: %d\n", *state);
     }
 
     *seen_decimal = true;
@@ -391,7 +394,7 @@ void handle_input_operator(char operator, int * state, MyBuf* op1, MyBuf* op2, c
             // evaluate op1 operator op2
             *seen_decimal = false; // reset seen decimal for future operand 1
             handle_evaluate(op1, op2, res, state, operator_buf);
-            *operator_buf = operator; // operator for next input! not current.
+            *operator_buf = operator;    // operator for next input! not current.
             *state = STATE_BUILDING_OP2; // and override state to be current.
         }
         break;
@@ -417,8 +420,6 @@ void handle_button_click(Button* button, int* state, bool* seen_decimal, char* o
     if (button->id == DISPLAY_BUTTON_INDEX) {
         return;
     }
-    fprintf(stdout, "user clicked on the button with label: %s\n", button->label);
-
     switch (button->id) {
     case 0: // 0
         handle_input_num('0', state, op1, op2);
@@ -480,8 +481,54 @@ void handle_button_click(Button* button, int* state, bool* seen_decimal, char* o
     }
 }
 
+void handle_keypress(KeySym keysym, char key_buf[], int key_len, int* state, bool* seen_decimal,
+                     char* operator_buf, MyBuf* op1, MyBuf* op2, MyBuf* res,
+                     MyBuf* display_button_buf)
+{
+    // number inputs
+    if (keysym >= XK_0 && keysym <= XK_9) {
+        // cast keysym into the ascii number in 0-9 range
+        handle_input_num((char)((unsigned long)keysym - 48) + '0', state, op1, op2);
+    }
+    // + is add
+    else if (keysym == XK_plus || keysym == XK_KP_Add) {
+        handle_input_operator('+', state, op1, op2, operator_buf, seen_decimal, res);
+    }
+    // - is sub
+    else if (keysym == XK_minus || keysym == XK_KP_Subtract) {
+        handle_input_operator('-', state, op1, op2, operator_buf, seen_decimal, res);
+    }
+    // *, x, X is multiply
+    else if (keysym == XK_asterisk || keysym == XK_x || keysym == XK_X ||
+             keysym == XK_KP_Multiply) {
+        handle_input_operator('x', state, op1, op2, operator_buf, seen_decimal, res);
+    }
+    // / is div
+    else if (keysym == XK_slash || keysym == XK_KP_Divide) {
+        handle_input_operator('/', state, op1, op2, operator_buf, seen_decimal, res);
+    }
+    // . is decimal
+    else if (keysym == XK_period) {
+        handle_input_decimal(state, seen_decimal, op1, op2);
+    }
+    // enter, = is eval
+    else if (keysym == XK_equal || keysym == XK_Return) {
+        handle_evaluate(op1, op2, res, state, operator_buf);
+    }
+    // Esc is clear
+    else if (keysym == XK_Escape) {
+        handle_clear(op1, op2, res, display_button_buf, state, seen_decimal, operator_buf);
+    }
+    // Backspace, delete is Del
+    else if (keysym == XK_Delete || keysym == XK_BackSpace) {
+        handle_backspace(op1, op2, res, state, seen_decimal);
+    }
+}
+
 int main()
 {
+    setlocale(LC_ALL, ""); // set locale for proper utf8 string input reading
+
     Display* display;
     if (!(display = XOpenDisplay(NULL))) {
         errx(1, "Can't get the display");
@@ -507,6 +554,16 @@ int main()
         errx(1, "couldn't query font struct");
     }
 
+    XIM xim = XOpenIM(display, NULL, NULL, NULL);
+    if (!xim) {
+        errx(1, "Could not get a x input method.\n");
+    }
+    XIC xic = XCreateIC(xim, XNInputStyle, XIMPreeditNothing | XIMStatusNothing, XNClientWindow,
+                        window, XNFocusWindow, window, NULL);
+    if (!xic) {
+        errx(1, "Could not create x input context.\n");
+    }
+
     Atom wm_delete_message = XInternAtom(display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(display, window, &wm_delete_message, 1);
 
@@ -520,6 +577,11 @@ int main()
     MyBuf op2 = {.p = 0, .buf = ""};
     MyBuf res = {.p = 0, .buf = ""};
     char operator_buf = '\0';
+
+    KeySym keysym;
+    char key_buf[32];
+    int key_len;
+    Status status;
 
     XEvent event;
     bool running = true;
@@ -540,6 +602,17 @@ int main()
             draw_app(display, window, gc, &event, buttons, font_struct);
             break;
         case KeyPress:
+            key_len =
+                Xutf8LookupString(xic, &event.xkey, key_buf, sizeof(key_buf), &keysym, &status);
+            if (status == XBufferOverflow) {
+                fprintf(stdout, "key lookup buffer overflow\n");
+            }
+            handle_keypress(keysym, key_buf, key_len, &state, &seen_decimal, &operator_buf, &op1,
+                            &op2, &res, &display_button_buf);
+            update_buttons_from_state(buttons, &state, &operator_buf, &op1, &op2, &res,
+                                      &display_button_buf);
+            XClearWindow(display, window);
+            draw_app(display, window, gc, &event, buttons, font_struct);
             break;
         case ClientMessage:
             handle_window_close(wm_delete_message, event, &running);
@@ -550,6 +623,8 @@ int main()
     }
 
     XSetErrorHandler(error_handler);
+    XDestroyIC(xic);
+    XCloseIM(xim);
     XFreeGC(display, gc);
     XFreeFont(display, font_struct);
     XDestroyWindow(display, window);

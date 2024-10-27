@@ -2,6 +2,8 @@
 
 This is a simple calculator app drawn using the X client lib for X Server protocol.
 
+<img src="./xcalc-at-home.png" width="200px">
+
 ## Motivation
 I felt like I haven't touched C in a long time, and there's no better way to make
 reviewing something old interesting by also learning something new at the same time...
@@ -34,18 +36,18 @@ make && ./main.out
 > results from previous calculations can be used as the first operand to an additional operator.
 
 Slightly less obvious behavior, so pointing it out.
-- `1.1. x 2 =` -> $1.1 \times 2 = 2.2$
-- `1.1.3.4.2.1. x 2 =` -> $1.1 \times 2 = 2.2$
-> Everything after the extra decimal is ignored.
+- `1 . 1 . x 2 =` -> $1.1 \times 2 = 2.2$
+- `1 . 1 . 3 . 4 . 2 . 1 . x 2 =` -> $1.13421 \times 2 = 2.26842$
+> Extra decimals are ignored. This looks weird, but the GUI will visually give feedback to the user
+> that the extra decimals are clearly not registered.
 
 - `1 2 + 1 2 = 1 2 + 1 2 =` -> $12 + 12 = 24; 12 + 12 = 24$
-> $12 + 12$ is evaluated twice, but we only see the results of the second evaluation.
-> The first evaluation is shown immediately once `=` is hit, and then as soon as the third `12` is inputted
+> $12 + 12$ is evaluated twice, and we only see both results.
+> The first evaluation is shown immediately once `=` is hit, and then as soon as the next `1` is inputted
 > the previous result `24` will not be seen anymore.
 
 - `1 2 + / * 1 2 =` -> $12 \times 12 = 144$
 > We take the last operator inputted when waiting for the second operand to be inputted.
-
 
 - `1 + 1 * 2 =` -> $(1+1) * 2 = 4$
 - `1 * 2 + 1 / 1 =` -> $((1 * 2) + 1) / 1 = 3 / 1 = 3$
@@ -63,3 +65,4 @@ I might not have catched all the weird edge cases, but this is why this is `xcal
 - https://xopendisplay.hilltopia.ca/2009/Mar/Xlib-tutorial-part-9----Buttons.html
 - https://man.archlinux.org/man/extra/libx11/XEvent.3.en
 - Claude 3.5 Sonnet 
+- https://www.cl.cam.ac.uk/~mgk25/ucs/keysymdef.h
