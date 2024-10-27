@@ -293,7 +293,6 @@ void handle_evaluate(MyBuf* op1, MyBuf* op2, MyBuf* res, int* state, char* opera
     case '/':
         // no division by zero
         if (op2_float == 0) {
-            fprintf(stdout, "division by zero\n");
             op1->buf[0] = '\0';
             op1->p = 0;
             op2->buf[0] = '\0';
@@ -605,7 +604,8 @@ int main()
             key_len =
                 Xutf8LookupString(xic, &event.xkey, key_buf, sizeof(key_buf), &keysym, &status);
             if (status == XBufferOverflow) {
-                fprintf(stdout, "key lookup buffer overflow\n");
+                fprintf(stdout, "key lookup buffer overflow, what kind of keyboard layout are you "
+                                "using bro?\n");
             }
             handle_keypress(keysym, key_buf, key_len, &state, &seen_decimal, &operator_buf, &op1,
                             &op2, &res, &display_button_buf);
