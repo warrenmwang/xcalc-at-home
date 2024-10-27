@@ -84,7 +84,7 @@ void create_button(Button buttons[], int btn_index, int x, int y, int w, int h, 
     btn->label = label;
 }
 
-void initialize_buttons(Button buttons[], MyBuf display_button_buf)
+void initialize_buttons(Button buttons[], MyBuf* display_button_buf)
 {
     // Create our buttons
     create_button(buttons, 0, 0, 300, 100, 50, "0");
@@ -110,8 +110,8 @@ void initialize_buttons(Button buttons[], MyBuf display_button_buf)
     create_button(buttons, 18, 100, 100, 50, 50, "Del");
     create_button(buttons, 16, 150, 100, 50, 50, "/");
 
-    display_button_buf.buf[0] = '\0';
-    create_button(buttons, DISPLAY_BUTTON_INDEX, 0, 0, 200, 100, display_button_buf.buf);
+    display_button_buf->buf[0] = '\0';
+    create_button(buttons, DISPLAY_BUTTON_INDEX, 0, 0, 200, 100, display_button_buf->buf);
 }
 
 void draw_button(Display* display, Window window, GC gc, Button* button, XFontStruct* font_struct)
@@ -161,7 +161,7 @@ void update_buttons_from_state(Button buttons[], int* state, char* operator_buf,
 {
     Button* display_button = &buttons[DISPLAY_BUTTON_INDEX];
     switch (*state) {
-    case 0: // building op 1
+    case STATE_BUILDING_OP1:
         // Just copy the chars from op1 buf in the range [0, p_op1) into the DISPLAY_BUTTON_BUF
         // could be more optimized by reusing the buffer maybe, but I'm too unfamiliar with
         // programming at C level for that kind of thing. Premature optimization is the root of all
@@ -171,18 +171,19 @@ void update_buttons_from_state(Button buttons[], int* state, char* operator_buf,
         display_button_buf->buf[display_button_buf->p] = '\0';
         display_button->label = display_button_buf->buf;
         break;
-    case 1: // building op 2
+    case STATE_BUILDING_OP2:
         strncpy(display_button_buf->buf, op2->buf, op2->p);
         display_button_buf->p = op2->p;
         display_button_buf->buf[display_button_buf->p] = '\0';
         display_button->label = display_button_buf->buf;
         break;
-    case 2: // just evaluated
+    case STATE_JUST_EVAL:
         // copy res buf contents into display buf contents
         // assuming that res is null terminated AND p_res is on index of the null char.
         for (unsigned int i = 0; i < res->p + 1; i++) {
             display_button_buf->buf[i] = res->buf[i];
         }
+        display_button_buf->p = res->p; // points to null char
         display_button->label = display_button_buf->buf;
         break;
     default:
@@ -224,8 +225,7 @@ void handle_clear(MyBuf* op1, MyBuf* op2, MyBuf* res, MyBuf* display_button_buf,
     display_button_buf->p = 0;
 }
 
-void handle_backspace(MyBuf* op1, MyBuf* op2, MyBuf* display_button_buf, int* state,
-                      bool* seen_decimal)
+void handle_backspace(MyBuf* op1, MyBuf* op2, MyBuf* res, int* state, bool* seen_decimal)
 {
     switch (*state) {
     case STATE_BUILDING_OP1:
@@ -247,6 +247,8 @@ void handle_backspace(MyBuf* op1, MyBuf* op2, MyBuf* display_button_buf, int* st
         }
         break;
     case STATE_JUST_EVAL:
+        // also change state to be updating op1 now
+        *state = STATE_BUILDING_OP1;
         if (op1->p > 0) {
             --(op1->p);
             if (op1->buf[op1->p] == '.') {
@@ -254,9 +256,9 @@ void handle_backspace(MyBuf* op1, MyBuf* op2, MyBuf* display_button_buf, int* st
             }
             op1->buf[op1->p] = '\0';
         }
-        if (display_button_buf->p > 0) {
-            --(display_button_buf->p);
-            display_button_buf->buf[display_button_buf->p] = '\0';
+        if (res->p > 0) {
+            --(res->p);
+            res->buf[res->p] = '\0';
         }
         break;
     default:
@@ -266,11 +268,9 @@ void handle_backspace(MyBuf* op1, MyBuf* op2, MyBuf* display_button_buf, int* st
 
 void handle_evaluate(MyBuf* op1, MyBuf* op2, MyBuf* res, int* state, char* operator)
 {
-    // parse op1_buf and op2_buf
-    //   trailing 0's?
-    //   negative values (negative signs in front)?
-    //   start with the simplest case, regular numbers
-
+    if (*operator== '\0') {
+        return;
+    }
     // first terminate the strings
     op1->buf[op1->p] = '\0';
     op2->buf[op2->p] = '\0';
@@ -334,8 +334,11 @@ void handle_input_num(char num, int* state, MyBuf* op1, MyBuf* op2)
         op2->p++;
         break;
     case STATE_JUST_EVAL:
-        errx(1, "TODO: not implemented.");
-        break; // TODO:
+        // ignore whats in op1 currently, and start building op1 with current input
+        *state = STATE_BUILDING_OP1;
+        op1->buf[0] = num;
+        op1->p = 1;
+        break;
     default:
         errx(1, "Got an invalid state in handle_input_num.");
     }
@@ -357,8 +360,11 @@ void handle_input_decimal(int* state, bool* seen_decimal, MyBuf* op1, MyBuf* op2
         op2->p++;
         break;
     case STATE_JUST_EVAL:
-        errx(1, "TODO: not implemented");
-        break; // TODO:
+        // ignore whats in op1 currently, and start building op1 with current input
+        *state = STATE_BUILDING_OP1;
+        op1->buf[0] = '.';
+        op1->p = 1;
+        break;
     default:
         errx(1, "Got an invalid state in handle_input_decimal.");
     }
@@ -382,11 +388,11 @@ void handle_input_operator(char operator, int * state, MyBuf* op1, MyBuf* op2, c
         if (op2->p == 0) {
             *operator_buf = operator;
         } else {
-            // TODO: call handle evaluate (which should evaluate and save result in op1 and
-            // res, AND update state for us)
-            // operand 2 already has some values,
-            *operator_buf = operator;
+            // evaluate op1 operator op2
+            *seen_decimal = false; // reset seen decimal for future operand 1
             handle_evaluate(op1, op2, res, state, operator_buf);
+            *operator_buf = operator; // operator for next input! not current.
+            *state = STATE_BUILDING_OP2; // and override state to be current.
         }
         break;
     case STATE_JUST_EVAL:
@@ -396,8 +402,9 @@ void handle_input_operator(char operator, int * state, MyBuf* op1, MyBuf* op2, c
         // operator 2.
         *operator_buf = operator;
         *state = STATE_BUILDING_OP2; // previous result should be in res_buf AND op1_buf
+        break;
     default:
-        errx(1, "Got an invalid state in handle_input_operator.");
+        errx(1, "Got an invalid state in handle_input_operator: %d\n", *state);
     }
 }
 
@@ -467,7 +474,7 @@ void handle_button_click(Button* button, int* state, bool* seen_decimal, char* o
     case DISPLAY_BUTTON_INDEX:
         return;
     case 18: // Del
-        handle_backspace(op1, op2, display_button_buf, state, seen_decimal);
+        handle_backspace(op1, op2, res, state, seen_decimal);
     default:
         break;
     }
@@ -504,14 +511,14 @@ int main()
     XSetWMProtocols(display, window, &wm_delete_message, 1);
 
     Button buttons[NUM_BUTTONS];
-    MyBuf display_button_buf = {.p = 0};
-    initialize_buttons(buttons, display_button_buf);
+    MyBuf display_button_buf = {.p = 0, .buf = ""};
+    initialize_buttons(buttons, &display_button_buf);
 
     bool seen_decimal = false;
     int state = STATE_BUILDING_OP1;
-    MyBuf op1 = {.p = 0};
-    MyBuf op2 = {.p = 0};
-    MyBuf res = {.p = 0};
+    MyBuf op1 = {.p = 0, .buf = ""};
+    MyBuf op2 = {.p = 0, .buf = ""};
+    MyBuf res = {.p = 0, .buf = ""};
     char operator_buf = '\0';
 
     XEvent event;
