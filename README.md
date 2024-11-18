@@ -16,6 +16,7 @@ for it directly...How hard could it be?
 
 ## Getting Started
 
+Requires `libx11-dev`. (e.g. ubuntu `sudo apt install libx11-dev`)
 Have an X11 server running. Compile and run program:
 ```
 make && ./main.out
