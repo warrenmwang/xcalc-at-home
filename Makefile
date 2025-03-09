@@ -1,19 +1,11 @@
 CC = gcc
-CFLAGS = -Wall -lX11 -std=c11
+CFLAGS = -Wall -lX11 -std=c99
 
 SRC = main.c
 TARGET = main.out
 
 $(TARGET): $(SRC)
-	$(CC) -o $(TARGET) $(SRC) $(CFLAGS) 
-
-# OBJ = main.o
-
-# $(TARGET): $(OBJ)
-# 	$(CC) $(OBJ) $(CFLAGS) -o $(TARGET)
-#
-# %.o: %.c
-# 	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) -o $(TARGET) $(SRC) $(CFLAGS)
 
 clean:
 	rm -f $(TARGET)
